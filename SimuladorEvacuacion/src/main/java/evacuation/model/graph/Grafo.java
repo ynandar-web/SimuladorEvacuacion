@@ -12,7 +12,7 @@ public class Grafo {
     private final Map<String, Nodo>         nodos   = new LinkedHashMap<>();
     private final Map<String, List<Arista>> adyacencia = new HashMap<>();
 
-    // ── Mutación ───────────────────────────────────────────────────
+    // Mutación
 
     public void agregarNodo(Nodo nodo) {
         nodos.put(nodo.getId(), nodo);

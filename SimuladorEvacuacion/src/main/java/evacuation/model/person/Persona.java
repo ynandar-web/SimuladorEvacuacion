@@ -22,7 +22,7 @@ public class Persona {
         this.evacuado         = false;
     }
 
-    // ── Consulta ───────────────────────────────────────────────────
+    // Consulta 
     public String getId()               { return id; }
     public String getNombre()           { return nombre; }
     public String getHabitacionActual() { return habitacionActual; }
