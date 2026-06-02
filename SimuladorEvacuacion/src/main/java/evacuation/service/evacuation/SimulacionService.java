@@ -13,18 +13,31 @@ import java.util.*;
 
 /**
  * Ejecuta la simulación por turnos.
- * Cada turno: avanza personas en cola, actualiza hash y árbol de zonas.
+ * Cada turno: avanza personas según su ruta, usa ColaPasillo como
+ * cuello de botella en escaleras y pasillos.
  * Principio SRP: solo gestiona el loop de simulación.
+ *
+ * CORRECCIÓN: se almacena la ruta completa de cada persona (PilaRuta)
+ * para que pueda avanzar un paso por turno hasta llegar a la salida.
+ * El bug original descartaba la ruta tras el primer paso y solo
+ * encolaba personas en nodos ESCALERA/PASILLO, por lo que quienes
+ * empezaban en HABITACION nunca avanzaban.
  */
 public class SimulacionService {
 
-    private final Grafo             grafo;
-    private final EvacuacionService evacuacionService;
-    private final TablaHash<String, Persona>    registroPersonas;
-    private final ArbolRiesgo<Integer, Zona>    arbolZonas;
+    private final Grafo                          grafo;
+    private final EvacuacionService              evacuacionService;
+    private final TablaHash<String, Persona>     registroPersonas;
+    private final ArbolRiesgo<Integer, Zona>     arbolZonas;
+
+    // Ruta pendiente de cada persona (clave = idPersona)
+    private final Map<String, PilaRuta<String>>  rutasPendientes  = new HashMap<>();
 
     // Cola por nodo (escalera/pasillo): simula cuello de botella
-    private final Map<String, ColaPasillo<Persona>> colasPorNodo = new HashMap<>();
+    private final Map<String, ColaPasillo<Persona>> colasPorNodo  = new HashMap<>();
+
+    // Personas listas para moverse este turno (no están en cuello de botella)
+    private final ColaPasillo<Persona>           colaGeneral      = new ColaPasillo<>();
 
     private int turnoActual = 0;
 
@@ -32,12 +45,12 @@ public class SimulacionService {
                              EvacuacionService evacuacionService,
                              TablaHash<String, Persona> registroPersonas,
                              ArbolRiesgo<Integer, Zona> arbolZonas) {
-        this.grafo             = grafo;
+        this.grafo            = grafo;
         this.evacuacionService = evacuacionService;
         this.registroPersonas  = registroPersonas;
         this.arbolZonas        = arbolZonas;
 
-        // Inicializar cola para cada nodo escalera/pasillo
+        // Cola de cuello de botella solo para escaleras y pasillos
         grafo.getNodos().forEach(nodo -> {
             if (nodo.esEscalera() || nodo.getTipo() == Nodo.TipoNodo.PASILLO) {
                 colasPorNodo.put(nodo.getId(), new ColaPasillo<>());
@@ -45,9 +58,9 @@ public class SimulacionService {
         });
     }
 
-    /**
-     * Inicializa rutas para todas las personas registradas.
-     */
+    // ─────────────────────────────────────────────────────────────
+    //  Iniciar: calcular rutas y encolar todas las personas
+    // ─────────────────────────────────────────────────────────────
     public void iniciar() {
         System.out.println("╔══════════════════════════════════════╗");
         System.out.println("║  SIMULACIÓN DE EVACUACIÓN - INICIO   ║");
@@ -56,30 +69,45 @@ public class SimulacionService {
         registroPersonas.valores().forEach(persona -> {
             PilaRuta<String> ruta = evacuacionService.evacuarDesde(persona);
             if (!ruta.estaVacia()) {
-                encolarPrimerPaso(persona, ruta);
+                // Descartamos la instrucción "INICIO: HAB_XX" (primer elemento)
+                ruta.desapilar();
+                rutasPendientes.put(persona.getId(), ruta);
+                // Todas las personas arrancan listas para moverse
+                colaGeneral.encolar(persona);
+            } else {
+                System.out.printf("[ALERTA] Sin ruta para %s — permanece en %s%n",
+                        persona.getNombre(), persona.getHabitacionActual());
             }
         });
     }
 
-    /**
-     * Avanza la simulación un turno.
-     * Cada persona en cola avanza un paso; si llega a salida, se marca evacuada.
-     */
+    // ─────────────────────────────────────────────────────────────
+    //  Avanzar un turno
+    // ─────────────────────────────────────────────────────────────
     public void avanzarTurno() {
         turnoActual++;
         System.out.printf("%n─── Turno %d ───────────────────────────%n", turnoActual);
 
+        // 1. Mover personas de la cola general (una por turno c/u)
+        int enCola = colaGeneral.getTamanio();
+        for (int i = 0; i < enCola; i++) {
+            Persona persona = colaGeneral.desencolar();
+            if (persona.isEvacuado()) continue;
+            moverPersona(persona);
+        }
+
+        // 2. Liberar un lugar por cuello de botella (escalera/pasillo)
         colasPorNodo.forEach((nodoId, cola) -> {
             if (!cola.estaVacia()) {
                 Persona persona = cola.desencolar();
-                procesarMovimiento(persona, nodoId);
+                if (!persona.isEvacuado()) moverPersona(persona);
             }
         });
 
         imprimirEstado();
     }
 
-    /** Ejecuta la simulación completa hasta que todos evacúen o se agoten los turnos. */
+    /** Ejecuta hasta que todos evacúen o se agoten los turnos. */
     public void ejecutarHastaFin(int maxTurnos) {
         iniciar();
         while (!todosEvacuados() && turnoActual < maxTurnos) {
@@ -90,27 +118,40 @@ public class SimulacionService {
                 : "\n⚠️  Evacuación incompleta tras " + maxTurnos + " turnos.");
     }
 
-    // ── Privados ───────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────
+    //  Privados
+    // ─────────────────────────────────────────────────────────────
 
-    private void encolarPrimerPaso(Persona persona, PilaRuta<String> ruta) {
-        String instruccion = ruta.desapilar();   // primer paso
-        String nodoDestino = extraerNodoId(instruccion);
-        ColaPasillo<Persona> cola = colasPorNodo.get(nodoDestino);
-        if (cola != null) cola.encolar(persona);
-    }
+    /**
+     * Avanza a la persona un paso en su ruta.
+     * Si el siguiente nodo es un cuello de botella, la mete en su cola.
+     * Si no hay más pasos, es porque llegó a la salida.
+     */
+    private void moverPersona(Persona persona) {
+        PilaRuta<String> ruta = rutasPendientes.get(persona.getId());
+        if (ruta == null || ruta.estaVacia()) return;
 
-    private void procesarMovimiento(Persona persona, String nodoActualId) {
-        Nodo nodo = grafo.getNodo(nodoActualId).orElse(null);
+        String instruccion  = ruta.desapilar();
+        String nodoDestinoId = extraerNodoId(instruccion);
+        Nodo   nodo          = grafo.getNodo(nodoDestinoId).orElse(null);
         if (nodo == null) return;
 
         if (nodo.esSalida()) {
             persona.marcarEvacuada();
             registroPersonas.poner(persona.getId(), persona);
-            System.out.printf("  ✔ %s evacuado por %s%n", persona.getNombre(), nodoActualId);
+            System.out.printf("  ✔ %s evacuado por %s%n", persona.getNombre(), nodoDestinoId);
         } else {
-            persona.moverA(nodoActualId, nodo.getPiso());
+            persona.moverA(nodoDestinoId, nodo.getPiso());
             System.out.printf("  → %s avanzó a %s (Piso %d)%n",
-                    persona.getNombre(), nodoActualId, nodo.getPiso());
+                    persona.getNombre(), nodoDestinoId, nodo.getPiso());
+
+            // ¿Es un cuello de botella?
+            ColaPasillo<Persona> colaNodo = colasPorNodo.get(nodoDestinoId);
+            if (colaNodo != null) {
+                colaNodo.encolar(persona);   // espera su turno en ese nodo
+            } else {
+                colaGeneral.encolar(persona); // sigue libremente el próximo turno
+            }
         }
     }
 
@@ -125,7 +166,7 @@ public class SimulacionService {
     }
 
     private String extraerNodoId(String instruccion) {
-        // Formato: "Mover a: HAB_01" o "SALIDA: EXIT_A"
+        // Formato: "Mover a: PAS_01" | "SALIDA: EXIT_B"
         int idx = instruccion.lastIndexOf(": ");
         return idx >= 0 ? instruccion.substring(idx + 2).trim() : instruccion;
     }
