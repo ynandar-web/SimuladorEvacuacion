@@ -76,8 +76,13 @@ public class EstadoSimulacion {
         grafo.agregarArista(h3,  p1,   8);  grafo.agregarArista(p1,  esc1, 3);
         grafo.agregarArista(p1,  esc2, 4);  grafo.agregarArista(h4,  p2,   5);
         grafo.agregarArista(h5,  p2,   5);  grafo.agregarArista(h6,  p2,   7);
-        grafo.agregarArista(p2,  esc1, 6);
-        grafo.agregarArista(esc1, exA, 10); grafo.agregarArista(esc2, exB,  8);
+        grafo.agregarArista(p2,   esc1, 6);
+        grafo.agregarArista(p2,   esc2, 7);   // ruta alternativa piso 2 → ESC_B
+        // Rutas cruzadas: cada escalera puede llegar a ambas salidas
+        grafo.agregarArista(esc1, exA, 10);
+        grafo.agregarArista(esc1, exB, 12);   // ESC_A también puede salir por EXIT_B
+        grafo.agregarArista(esc2, exB,  8);
+        grafo.agregarArista(esc2, exA, 12);   // ESC_B también puede salir por EXIT_A
 
         // Aplicar bloqueos configurados en la GUI
         if (bloqueadoEscAExitA) grafo.bloquearArista("ESC_A", "EXIT_A");
