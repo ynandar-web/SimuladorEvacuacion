@@ -65,7 +65,12 @@ public class Main {
         grafo.agregarArista(h5, p2,   5);
         grafo.agregarArista(h6, p2,   7);
         grafo.agregarArista(p2, esc1, 6);
+        grafo.agregarArista(p2, esc2, 7);     // ruta alternativa piso 2 → ESC_B
+        // Rutas cruzadas: cada escalera puede llegar a ambas salidas
         grafo.agregarArista(esc1, exitA, 10);
+        grafo.agregarArista(esc1, exitB, 12); // ESC_A también puede salir por EXIT_B
+        grafo.agregarArista(esc2, exitB,  8);
+        grafo.agregarArista(esc2, exitA, 12); // ESC_B también puede salir por EXIT_A
         grafo.agregarArista(esc2, exitB,  8);
 
         // Simular humo en ESC_A → EXIT_A
