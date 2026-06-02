@@ -5,9 +5,8 @@ import evacuation.gui.panel.VentanaPrincipal;
 import javax.swing.*;
 
 /**
- * Punto de entrada de la interfaz gráfica Swing.
- * NO modifica ninguna clase del modelo, servicio ni utilidad.
- * Solo instancia VentanaPrincipal, que orquesta todos los paneles.
+ 
+ * instancia VentanaPrincipal, que orquesta todos los paneles.
  *
  * Para ejecutar la GUI:
  *   java -cp <classpath> evacuation.gui.MainGUI
